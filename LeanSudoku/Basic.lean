@@ -6,7 +6,7 @@ Authors: ported from Markus Himmel's Lean 3 version by Jeremy Avigad
 import Mathlib.Data.Set.Function
 import Mathlib.Tactic
 
-open Set
+open Set Fin.NatCast
 
 def row (i : Fin 9) : Set (Fin 9 × Fin 9) := { p | p.1 = i }
 def col (i : Fin 9) : Set (Fin 9 × Fin 9) := { p | p.2 = i }
@@ -17,7 +17,7 @@ lemma mem_col (i j k : Fin 9) : (j, k) ∈ col i ↔ k = i := Iff.rfl
 lemma mem_box (i j : Fin 9) (k l : Fin 3) : (i, j) ∈ box k l ↔ i.1 / 3 = k.1 ∧ j.1 / 3 = l.1 := Iff.rfl
 
 
-structure Sudoku :=
+structure Sudoku where
 (f : Fin 9 × Fin 9 → Fin 9)
 (h_row : ∀ i : Fin 9, Set.BijOn f (row i) Set.univ)
 (h_col : ∀ i : Fin 9, Set.BijOn f (col i) Set.univ)
@@ -98,7 +98,7 @@ lemma bloop {i : ℕ} (hi : i < 9) : i / 3 < 3 := by interval_cases i <;> decide
 lemma box_conflict (s : Sudoku) {i j k l m : Fin 9} (h₀ : s.f (i, j) = m) (h₁ : s.f (k, l) = m)
     (h₂ : i.1 / 3 = k.1 / 3) (h₃ : j.1 / 3 = l.1 / 3) (h₄ : i ≠ k ∨ j ≠ l) : False := by
   contrapose h₄
-  push_neg
+  push Not
   clear h₄
   suffices : (i, j) = (k, l)
   · cases' this; exact ⟨rfl, rfl⟩
