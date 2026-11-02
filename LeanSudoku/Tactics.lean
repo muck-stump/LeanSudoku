@@ -29,6 +29,7 @@ inductive Logic where
   | /-- `row_cases`: the goal's value occurs somewhere in the goal's row -/ row
   | /-- `col_cases`: the goal's value occurs somewhere in the goal's column -/ col
   | /-- `box_cases`: the goal's value occurs somewhere in the goal's box -/ box
+  | /-- `cell_cases`: the goal's cell contains one of the nine values -/ cell
 
 /-- The kinds of statement the gameplay tactics accept as goals. -/
 inductive GoalKind where
@@ -100,7 +101,8 @@ def wrapSlot (g : SudokuGoal) (i : Nat) (p : Expr) : Expr :=
 /-- Which goals each logic tactic accepts. -/
 def Logic.allowed (l : Logic) (k : GoalKind) : Bool :=
   match l, k with
-  | .row, .cell | .col, .cell | .box, .cell | .box, .snyder => true
+  | .row, .cell | .col, .cell | .box, .cell | .box, .snyder
+  | .cell, .cell | .cell, .double | .cell, .triple => true
   | _, _ => false
 
 /-- Searches for a proof of `target` among the given cell hypotheses. -/
@@ -176,6 +178,7 @@ def caseProof (l : Logic) (g : SudokuGoal) : MetaM Expr := do
       let br : Q(Fin 3) := q((↑(Fin.val $r / 3) : Fin 3))
       let bc : Q(Fin 3) := q((↑(Fin.val $c / 3) : Fin 3))
       pure q(Sudoku.box_cases $s $br $bc $v)
+  | .cell => pure q(Sudoku.cell_cases $s $r $c)
 
 /-- Shared engine: optionally case-split `disj?` (an onto-lemma proof) in the main
 goal, then repeatedly try to close every branch against the board, splitting the
@@ -239,6 +242,14 @@ elab "col_logic" : tactic => runLogic .col #[]
 position. -/
 elab "box_logic" : tactic => runLogic .box #[]
 
+/-- Like `box_logic`, but case-splits `cell_cases`: the goal's cell contains one of
+the nine values and all but the goal's value are ruled out. This is the usual
+`naked_single` deduction. -/
+elab "cell_logic" : tactic => runLogic .cell #[]
+
+/-- Synonym for `cell_logic`, following usual sudoku terminology. -/
+elab "naked_single" : tactic => runLogic .cell #[]
+
 /-- Closes the goal if a cell hypothesis in the context already proves it (pencil-mark
 goals are matched against their disjuncts). -/
 elab "sudoku_assumption" : tactic => do
@@ -284,6 +295,12 @@ example (s : Sudoku) (h00 : s.f (0, 0) = 7) (h01 : s.f (0, 1) = 1) (h02 : s.f (0
     (h10 : s.f (1, 0) = 4) (h11 : s.f (1, 1) = 5) (h12 : s.f (1, 2) = 6)
     (h20 : s.f (2, 0) = 2) (h21 : s.f (2, 1) = 8) : s.snyder 0 0 0 1 7 := by
   box_logic
+
+-- `naked_single`: the other eight values all occur in the row.
+example (s : Sudoku) (h1 : s.f (0, 1) = 2) (h2 : s.f (0, 2) = 3) (h3 : s.f (0, 3) = 4)
+    (h4 : s.f (0, 4) = 5) (h5 : s.f (0, 5) = 6) (h6 : s.f (0, 6) = 7)
+    (h7 : s.f (0, 7) = 8) (h8 : s.f (0, 8) = 0) : s.f (0, 0) = 1 := by
+  naked_single
 
 -- `sudoku_assumption` finishes a goal already present in the context.
 example (s : Sudoku) (h0 : s.f (0, 0) = 1) : s.f (0, 0) = 1 := by
