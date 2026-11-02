@@ -1,5 +1,6 @@
 import LeanSudoku.Basic
 import LeanSudoku.STactic
+import LeanSudoku.SudokuWidget
 
 set_option relaxedAutoImplicit false
 
@@ -223,19 +224,23 @@ def logicMain (main : MVarId) (l : Logic) (pencils : Array Name) : MetaM (List M
       throwError "this tactic does not apply to a goal of this shape:{indentExpr target}"
     resolveMain main (some (← caseProof l g)) pencils
 
-/-- Shared entry point for the logic tactics: run `logicMain` on the main goal and
-make its surviving branches the new goals. -/
-def runLogic (l : Logic) (pencils : Array Name) : TacticM Unit := do
+/-- Shared entry point for the logic tactics: recognize the goal, build the
+onto-lemma proof, hand over to `resolveMain` — and attach a panel widget showing
+the board as it looked *before* this move, so putting the cursor on the tactic
+shows the position the deduction was made from. -/
+def runLogic (l : Logic) (pencils : Array Name) (stx : Syntax) : TacticM Unit := do
   let main ← getMainGoal
+  let html ← liftMetaM (currentBoardHtml main)
   replaceMainGoal (← liftMetaM (logicMain main l pencils))
+  saveBoardPanel html stx
 
 /-- Splits the fact that the goal's value occurs somewhere in the goal's row
 (`row_cases`) and closes every position but the goal's own cell by contradiction. -/
-elab "row_logic" : tactic => runLogic .row #[]
+elab stx:"row_logic" : tactic => runLogic .row #[] stx
 
 /-- Splits the fact that the goal's value occurs somewhere in the goal's column
 (`col_cases`) and closes every position but the goal's own cell by contradiction. -/
-elab "col_logic" : tactic => runLogic .col #[]
+elab stx:"col_logic" : tactic => runLogic .col #[] stx
 
 /-- The syntax of the pencil-mark-assisted tactics: `with p₀ p₁ …` names hypotheses
 for pencil marks to case-split when a branch does not close immediately. -/
@@ -249,29 +254,35 @@ syntax (name := sudokuPencil) "pencil" (ppSpace "with" ppSpace ident+)? : tactic
 and ruling out every other position. The optional `with p₀ p₁ …` names pencil-mark
 hypotheses to fall back on when a position is not immediately contradictory. -/
 elab_rules : tactic
-  | `(tactic| box_logic) => runLogic .box #[]
-  | `(tactic| box_logic with $ids:ident*) => runLogic .box (ids.map (·.getId))
+  | `(tactic| box_logic) => do runLogic .box #[] (← getRef)
+  | `(tactic| box_logic with $ids:ident*) => do runLogic .box (ids.map (·.getId)) (← getRef)
 
 /-- Like `box_logic`, but case-splits `cell_cases`: the goal's cell contains one of
 the nine values and all but the goal's value are ruled out. This is the usual
 `naked_single` deduction. -/
 elab_rules : tactic
-  | `(tactic| cell_logic) => runLogic .cell #[]
-  | `(tactic| cell_logic with $ids:ident*) => runLogic .cell (ids.map (·.getId))
-  | `(tactic| naked_single) => runLogic .cell #[]
-  | `(tactic| naked_single with $ids:ident*) => runLogic .cell (ids.map (·.getId))
+  | `(tactic| cell_logic) => do runLogic .cell #[] (← getRef)
+  | `(tactic| cell_logic with $ids:ident*) => do runLogic .cell (ids.map (·.getId)) (← getRef)
+  | `(tactic| naked_single) => do runLogic .cell #[] (← getRef)
+  | `(tactic| naked_single with $ids:ident*) => do runLogic .cell (ids.map (·.getId)) (← getRef)
 
 /-- Case-splits the pencil marks `p₀ p₁ …` until the goal yields: no onto-lemma is
-used, only board contradictions and the pencil marks themselves. -/
+used, only board contradictions and the pencil marks themselves. Like the other
+moves, it attaches a pre-move board snapshot as an infoview panel. -/
 elab_rules : tactic
   | `(tactic| pencil with $ids:ident*) => do
+      let myStx ← getRef
       let main ← getMainGoal
+      let html ← liftMetaM (currentBoardHtml main)
       replaceMainGoal (← liftMetaM (resolveMain main none (ids.map (·.getId))))
+      saveBoardPanel html myStx
 
 /-- Closes the goal if a cell hypothesis in the context already proves it (pencil-mark
-goals are matched against their disjuncts). -/
-elab "sudoku_assumption" : tactic => do
+goals are matched against their disjuncts). Attaches the usual board panel at the
+tactic, so `have c05 : … := by sudoku_assumption` still shows the picture. -/
+elab stx:"sudoku_assumption" : tactic => do
   let goal ← getMainGoal
+  let html ← liftMetaM (currentBoardHtml goal)
   liftMetaM do goal.withContext do
     let s ← getSudoku
     let cd ← getCellData s
@@ -281,6 +292,7 @@ elab "sudoku_assumption" : tactic => do
     match ← proveFromCells g target cd with
     | some pr => goal.assign pr
     | none => throwError "no hypothesis in the context proves{indentExpr target}"
+  saveBoardPanel html stx
 
 /-- Plays out the goal: repeatedly closes conjuncts from the context (`sudoku_assumption`)
 or splits the final conjunction of all 81 cells (`constructor`). -/
