@@ -1,7 +1,7 @@
 name = "LeanSudoku"
 version = "0.1.0"
 keywords = ["math"]
-defaultTargets = ["LeanSudoku"]
+defaultTargets = ["LeanSudoku", "Games"]
 
 [leanOptions]
 pp.unicode.fun = true # pretty-prints `fun a ↦ b`
@@ -13,3 +13,7 @@ rev = "v4.35.0"
 
 [[lean_lib]]
 name = "LeanSudoku"
+
+# Game files (played proofs live here; unplayed ones still build, with `sorry`).
+[[lean_lib]]
+name = "Games"

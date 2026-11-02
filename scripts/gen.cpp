@@ -59,21 +59,31 @@ int main()
 		cin >> s[i][j];
 	}
 
-	cout << "import widget\n\nopen sudoku\n\ntheorem play (s : sudoku)";
+	cout << "import LeanSudoku\n\n";
+	cout << "/-!\n";
+	cout << "  A generated sudoku game.  Every cell of the grid has to be proven,\n";
+	cout << "  one deduction at a time.  Start a line like\n\n";
+	cout << "    have c00 : s.f (0, 0) = 8 := by row_logic\n\n";
+	cout << "  (or `col_logic`, `box_logic`, `cell_logic`, `naked_single`, see\n";
+	cout << "  README.md) in place of the `sorry` below, and close the whole board\n";
+	cout << "  with `sudoku_finish`.\n";
+	cout << "-/\n\n";
+	cout << "theorem play (s : Sudoku)";
 
 	fora(i, 9) fora (j, 9) {
 		if (s[i][j] == 0) continue;
-		cout << " (c" << i << j << " : s.f (" << i << ", " << j << ") = " << s[i][j] << ")";
+		cout << "\n    (c" << i << j << " : s.f (" << i << ", " << j << ") = " << s[i][j] << ")";
 	}
 
 	solve(s, 0, 0);
 
-	cout << " :";
+	cout << " :\n";
 
 	fora(i, 9) fora(j, 9) {
-		cout << " s.f (" << i << ", " << j << ") = " << s[i][j];
-		if (i != 8 || j != 8) cout << " ∧";
+		cout << "    s.f (" << i << ", " << j << ") = " << s[i][j];
+		cout << ((i != 8 || j != 8) ? " ∧\n" : "\n");
 	}
 
-	cout << " :=\nbegin [show_sudoku]\n\nend\n";
+	cout << "    := by\n";
+	cout << "  sorry\n";
 }
