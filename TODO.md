@@ -60,29 +60,31 @@ lake exe cache get && lake build   # exit 0; the expected warnings are the
       `scripts/easy1`) keeps the tooling honest via the `Games` lake library.
 - [x] README: reproducible setup, updated repository layout, and working
       "How to play" instructions.
+- [x] Board widget: `LeanSudoku/SudokuWidget.lean` renders `Tactic.Sudoku.BoardInfo`
+      as an HTML table and hands it to ProofWidgets' `HtmlDisplayPanel` panel widget
+      via `Lean.Widget.savePanelWidgetInfo` — proofwidgets is already reachable
+      transitively through Mathlib, so the lakefile needed no change. Standalone
+      `show_sudoku` tactic, plus every gameplay tactic auto-attaching the pre-move
+      snapshot at its own span. (Lean 3's `[show_sudoku] … end` begin-block bracket
+      has no direct Lean 4 analogue; per-tactic panels are the replacement.)
+      Notes for the record: `elab_rules` patterns bind no `stx` — use `(← getRef)` —
+      while `elab stx:"name"` does; a `do` block lifts statements across monads here,
+      no `liftCoreM` exists for `TacticM`.
 
 Remaining build output is the informational "imports `Mathlib.…` … consider adding
 `module`" warning per Mathlib-importing module — harmless; adopting the module system
 downstream is out of scope.
 
-## Next steps
+## Remaining next steps
 
-### 1. Port the board widget (`LeanSudoku/Widget.lean`)
-
-Lean 3 widget/tactic-component code. Redesign against Lean 4's widget API
-(ProofWidgets4, already in the dependency tree via Mathlib): render the 9×9 grid from
-`Tactic.Sudoku.BoardInfo` (`cd`/`op`/`ip` cell & pencil-mark lists are already defined
-in `STactic.lean`). The `[show_sudoku]` bracket trick from Lean 3 needs an equivalent
-in Lean 4 (a `tactic%`-embedded widget or a hover on the goal) — decide UX first.
-
-### 2. Recognize `Sudoku.snyder₃` goals
+### 1. Recognize `Sudoku.snyder₃` goals
 
 `Basic.lean` defines `snyder₃`, but `parseSudokuGoal` only recognizes cell/snyder/
 double/triple shapes, so tactics refuse a `s.snyder₃ …` goal. Add a `GoalKind` case +
 `slots`/`wrapSlot` handling (three cells, same right-nested `Or` plumbing) — small and
 mechanical, would slot in right after the pencil-mark pieces.
 
-### 3. CI / docs polish
+### 2. CI / docs polish
 
 - [ ] `.github/workflows/lean_action_ci.yml` only runs `leanprover/lean-action@v1`.
       Verify on push that it runs `lake exe cache get` (otherwise Mathlib builds from

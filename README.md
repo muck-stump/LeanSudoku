@@ -8,9 +8,10 @@ the right number, using tactics that encode ordinary sudoku solving strategies.
 
 > **Status (work in progress):** the core library, the interactive gameplay tactics
 > (`row_logic`, `col_logic`, `box_logic`, `cell_logic`/`naked_single`, pencil marks,
-> `sudoku_assumption`, `sudoku_finish`) and the game generator all build on the
-> current toolchain (Lean v4.35.0 + Mathlib v4.35.0). Still to port: the board
-> widget. See [TODO.md](TODO.md) for exactly where the port stands.
+> `sudoku_assumption`, `sudoku_finish`), the game generator and the board widget
+> (rendered as an infoview panel) all build on the current toolchain
+> (Lean v4.35.0 + Mathlib v4.35.0). See [TODO.md](TODO.md) for exactly where the
+> port stands.
 
 ## Getting started
 
@@ -65,10 +66,28 @@ To move to a newer stable Lean release `vX.Y.Z`:
 
 ### Editor setup
 
-Open the repository folder in VS Code with the
+No project-specific plugin configuration is required: any Lean 4 LSP client that
+respects `lean-toolchain` works.
+
+**Neovim** with [lean.nvim](https://github.com/Julian/lean.nvim) — the setup this
+port was exercised against:
+
+* `lean.nvim` enables a `leanls` server whose `root_dir` detection finds this
+  repo's `lakefile.toml` and, because one exists, starts **`lake serve`** — so
+  `import LeanSudoku` and Mathlib imports resolve with zero setup. Opening any
+  `.lean` file under the repo root is enough.
+* The server is configured (`dependencyBuildMode = never`) to *never build*
+  dependencies itself: run `lake build` after a fresh clone or after changing
+  anything under `LeanSudoku/`, or imports will fail with a missing-olean error.
+* After regenerating or renaming a file under `Games/`, dismiss the
+  "imports out of date" notice with `:LeanRestartFile`.
+* The infoview renders this project's panel widgets (board pictures — see
+  *See the board* below) in the foldable *HTML Display* panel.
+
+**VS Code** with the
 [Lean 4 extension](https://marketplace.visualstudio.com/items?itemName=leanprover.lean4)
-(or another Lean 4 client). The editor reads `lean-toolchain` and starts the pinned
-toolchain automatically; no project-specific editor configuration is required.
+(or another Lean 4 client) also works: the editor reads `lean-toolchain` and starts
+the pinned toolchain automatically.
 
 ## Repository layout
 
@@ -77,8 +96,9 @@ toolchain automatically; no project-specific editor configuration is required.
 | `LeanSudoku/Basic.lean`      | sudoku definition and lemmas (rows, cols, boxes, pencil marks) | ✅ builds   |
 | `LeanSudoku/STactic.lean`    | board reading and `sudoku_conflict`                            | ✅ builds   |
 | `LeanSudoku/Tactics.lean`    | gameplay tactics (`row_logic`, …, `sudoku_finish`)             | ✅ builds   |
+| `LeanSudoku/SudokuWidget.lean` | board picture as an infoview panel widget (`show_sudoku`)     | ✅ builds   |
 | `LeanSudoku/STacticOld.lean` | original Lean 3 tactics, kept as the porting reference         | ⏸ reference only |
-| `LeanSudoku/Widget.lean`     | board-display widget                                           | ❌ unported (Lean 3) |
+| `LeanSudoku/Widget.lean`     | original Lean 3 board widget (Lean 3 `tc` API)                 | ⏸ reference only |
 | `scripts/gen.sh`, `gen.cpp`  | turn a grid into a game file                                   | ✅ emits Lean 4 |
 | `Games/`                     | game files; `Games/Easy1.lean` is a checked-in example         | 🎮 play here |
 
@@ -119,6 +139,29 @@ When a *given* cell is all you need, `sudoku_assumption` closes the goal from th
 context, and once every cell has been proven, `sudoku_finish` discharges the remaining
 conjunction of the generated theorem. (`sudoku_conflict` runs the board-conflict
 search on its own: it closes any goal for which the context alone is contradictory.)
+
+### See the board
+
+You don't have to keep the grid on paper. Every move tactic (`row_logic`, `col_logic`,
+`box_logic`, `cell_logic`/`naked_single`, `pencil`, `sudoku_assumption`) attaches a
+picture of the board **as it looked before that move** as a widget panel in the
+infoview: put the cursor on a tactic line and the panel shows
+
+* each proven cell as a big digit,
+* double/triple pencil marks in the cell centre,
+* outer (Snyder) pencil marks as small digits,
+* thick lines around every 3×3 box,
+* 💥 in a cell whose context proves two different values (your pencil marks have
+  gone wrong).
+
+Stepping down your game file line by line therefore replays the board filling up.
+(In lean.nvim the panel is the foldable *HTML Display* entry in the infoview; pin
+it if you want it to stay visible.) An explicit `show_sudoku` tactic renders the
+current position on its own, without making a move:
+
+```lean
+show_sudoku
+```
 
 There is also support for two kinds of pencil marks: Snyder notation on the edges of cells
 and doubles and triples in the center of cells.
