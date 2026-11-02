@@ -5,6 +5,11 @@ defaultTargets = ["LeanSudoku", "Games"]
 
 [leanOptions]
 pp.unicode.fun = true # pretty-prints `fun a ↦ b`
+# How deep goals pretty-print before eliding to `⋯`. The generated games'
+# answer-key conclusion is an 81-deep conjunction: at 6 it collapses to a
+# couple of lines, keeping the board widget near the top of the infoview.
+# Display-only; see README, "Generate a game file".
+pp.deepTerms.threshold = 6
 
 [[require]]
 name = "mathlib"

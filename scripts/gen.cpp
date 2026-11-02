@@ -68,6 +68,9 @@ int main()
 	cout << "  README.md) in place of the `sorry` below, and close the whole board\n";
 	cout << "  with `sudoku_finish`.\n";
 	cout << "-/\n\n";
+	// How deep the conclusion below pretty-prints (eliding to `⋯`) is set by
+	// `pp.deepTerms.threshold` in this repo's lakefile.toml: games carry no
+	// option of their own, so the knob lives in exactly one place.
 	cout << "theorem play (s : Sudoku)";
 
 	fora(i, 9) fora (j, 9) {
