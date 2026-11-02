@@ -6,8 +6,8 @@ Verified environment: Lean `v4.35.0`, Mathlib tag `v4.35.0`, Lake (bundled), ela
 Reproduce the current state from a fresh clone:
 
 ```sh
-lake exe cache get && lake build          # ✅ exit 0 (library = LeanSudoku/Basic.lean)
-lake env lean LeanSudoku/STactic.lean     # ❌ known-failing file, errors listed below
+lake exe cache get && lake build   # exit 0; the expected warnings are the
+                                   # Mathlib `module` hints and `Games/Easy1.lean`'s `sorry`
 ```
 
 ## Done on this branch
@@ -30,82 +30,64 @@ lake env lean LeanSudoku/STactic.lean     # ❌ known-failing file, errors liste
     written against that coercion.
   - `structure Sudoku :=` → `structure Sudoku where` (deprecated syntax).
   - `push_neg` → `push Not` (deprecated in current Mathlib).
-- [x] README rewritten with reproducible build/setup instructions.
-- [x] This file.
+- [x] `LeanSudoku/STactic.lean` (board reading + `sudoku_conflict`) ported and part of
+      the build:
+  - `showByNormNum` → `showByDecide` on `Lean.Meta.mkDecideProof`
+    (`Mathlib.Meta.NormNum.normNumAt` no longer exists);
+  - `evalFin` returns a bare `Fin 9` (no bundled proof), with a `whnf` fallback route so
+    `box_cases`' computed coordinates (`↑(3 * ↑(2 / 3) + 1)`), not just literal numerals,
+    evaluate — wrapped in `try/ccatch`, since `deriveNat` throws rather than returning
+    `none` when no rule applies;
+  - `CellData` drops its `hr hc hv` fields and the `Fin.ne_of_mod_ne` detour (Qq's
+    unquoter choked on the mixed `Q(ℕ) = Q(Fin 9)` ascriptions); `decide` closes
+    `l.ce ≠ r.ce` directly;
+  - conflict chain re-enabled: `row <|> col <|> cell <|> box`, plus `conflictWith` to
+    search the context *and* extra (case-split) facts;
+  - `parseCellData`/pencil parsers `guard (← isDefEq s s')` after pattern-matching, so
+    they only accept facts about the sudoku in the goal.
+- [x] `LeanSudoku/Tactics.lean` (gameplay tactics) ported:
+  - goal recognition: `SudokuGoal` covers cell / `snyder` / `double` / `triple` goals,
+    parsed through `~q()` patterns after `Qq.checkTypeQ target q(Prop)`;
+  - `sudoku_assumption`, `sudoku_finish`, `row_logic`, `col_logic`, `box_logic`,
+    `cell_logic`/`naked_single`, `pencil`, and the `with p₀ p₁ …` pencil-mark clause;
+  - shared engine (`resolveMain`/`splitOr`/…): split the onto-lemma, close every branch
+    by board contradiction or by matching the goal, fall back to splitting pencil marks
+    (last-to-first, as in Lean 3).
+  - smoke tests for every tactic at the bottom of the file; they all elaborate under
+    `lake build`.
+- [x] `scripts/gen.cpp` emits Lean 4 game files; `scripts/gen.sh` wraps
+      compile-and-run; a checked-in example `Games/Easy1.lean` (generated from
+      `scripts/easy1`) keeps the tooling honest via the `Games` lake library.
+- [x] README: reproducible setup, updated repository layout, and working
+      "How to play" instructions.
 
-Remaining build output is two informational warnings per module
-("`imports Mathlib.…` … consider adding `module`") — harmless; adopting the module
-system downstream is out of scope.
+Remaining build output is the informational "imports `Mathlib.…` … consider adding
+`module`" warning per Mathlib-importing module — harmless; adopting the module system
+downstream is out of scope.
 
-## Next steps (priority order)
+## Next steps
 
-### 1. Finish `LeanSudoku/STactic.lean` and put it in the build
-
-The file is **not** imported by `LeanSudoku.lean`, so `lake build` ignores it today.
-Check with `lake env lean LeanSudoku/STactic.lean`. Known errors at v4.35.0:
-
-- [ ] **L71 `evalFin`** — `return some ((n : Fin 9), proof)`: `n : ℕ` has no coercion to
-      `Fin 9`. Fix: `open Fin.NatCast` (same as `Basic.lean`) or use `Fin.ofNat 9 n`.
-      Also re-check `Mathlib.Meta.NormNum.deriveNat` (now at
-      `Mathlib/Tactic/NormNum/Core.lean:120`) — its returned proof must state
-      `e = (n : Fin 9)` for `evalFin`'s callers to typecheck.
-- [ ] **L135/L137 `Fin.ne_of_mod_ne`** — `i = ↑n`, `j = ↑m` hit the same missing ℕ→Fin
-      coercion (error at 135:14 and 135:28); after that the closing `simpa [hi, hj]`
-      fails (137:2). Redo the proof, e.g. `Fin.ne_of_val_ne` + `simp`/`omega` on
-      `Fin.val` with `n % 9 ≠ m % 9`.
-- [ ] **L142 `showByNormNum`** — `Mathlib.Meta.NormNum.normNumAt` no longer exists
-      anywhere in Mathlib/Batteries. The `norm_num`/`norm_num1` elaborators now live in
-      `Mathlib/Tactic/NormNum/Core.lean` (`elabNormNum`, `NormNum.derive`). Reimplement
-      `showByNormNum : Q(Prop) → MetaM Q($goal)` on the current API — e.g. elaborate
-      `norm_num1` at a fresh metavariable via `Lean.Elab.Tactic`, or drive
-      `NormNum.derive` + `Lean.Meta.mkExpectedTypeHint`-style proof assembly.
-- [ ] **L157–158** — `reduceEval: failed to evaluate argument` on the `lhc`/`rhc` Qq
-      ascriptions in `mkRowConflict`; check whether this is only a cascade of the
-      `evalFin` proof type being wrong, once the above compile.
-- [ ] **L235** — `example … := by sudoku_conflict` is the end-to-end smoke test
-      (context parsing → `evalFin` → `mkRowConflict`); it fails because the tactic
-      failed to elaborate upstream.
-- [ ] Cleanup once green: remove debug `logInfo`s (`mkRowConflict`, `cellConflict`,
-      `cellData:`, `after exfalos`), the stray `#check Sudoku.box_cases` and toy
-      `example`s, then add `import LeanSudoku.STactic` to `LeanSudoku.lean` so
-      `lake build` keeps it green.
-
-### 2. Port the remaining gameplay tactics
-
-Reference implementation: `LeanSudoku/STacticOld.lean` (Lean 3, starts with `#exit`,
-kept verbatim as the spec). Current `STactic.lean` only has `sudoku_conflict` (and even
-it only tries row conflicts — see the commented-out `<|>` chain).
-
-- [ ] `row_logic` / `col_logic` / `box_logic` / `cell_logic` / `naked_single`
-- [ ] pencil-mark handling: `pencil with p…`, `box_logic with p…` case-splitting
-- [ ] `sudoku_assumption` / `sudoku_finish`
-- [ ] parse `Sudoku.snyder₃` hypotheses (defined in `Basic.lean`, not yet recognised by
-      `STactic.lean`'s parsers)
-
-### 3. Port the board widget (`LeanSudoku/Widget.lean`)
+### 1. Port the board widget (`LeanSudoku/Widget.lean`)
 
 Lean 3 widget/tactic-component code. Redesign against Lean 4's widget API
 (ProofWidgets4, already in the dependency tree via Mathlib): render the 9×9 grid from
 `Tactic.Sudoku.BoardInfo` (`cd`/`op`/`ip` cell & pencil-mark lists are already defined
-in `STactic.lean`).
+in `STactic.lean`). The `[show_sudoku]` bracket trick from Lean 3 needs an equivalent
+in Lean 4 (a `tactic%`-embedded widget or a hover on the goal) — decide UX first.
 
-### 4. Make `scripts/gen.cpp` emit Lean 4
+### 2. Recognize `Sudoku.snyder₃` goals
 
-It still prints a Lean 3 game file (`import widget`, `open sudoku`,
-`begin [show_sudoku] end`). Update the template to roughly:
+`Basic.lean` defines `snyder₃`, but `parseSudokuGoal` only recognizes cell/snyder/
+double/triple shapes, so tactics refuse a `s.snyder₃ …` goal. Add a `GoalKind` case +
+`slots`/`wrapSlot` handling (three cells, same right-nested `Or` plumbing) — small and
+mechanical, would slot in right after the pencil-mark pieces.
 
-```lean
-import LeanSudoku.STactic
-
-theorem play (s : Sudoku) (c00 : s.f (0, 0) = 8) … : … := by …
-```
-
-and add a generated example game file to the repo as a regression test.
-
-### 5. CI / docs polish
+### 3. CI / docs polish
 
 - [ ] `.github/workflows/lean_action_ci.yml` only runs `leanprover/lean-action@v1`.
       Verify on push that it runs `lake exe cache get` (otherwise Mathlib builds from
-      source and CI times out); add an explicit step/`build-args` if needed.
-- [ ] Once step 1–2 land: flip the README "How to play" section from reference-material
-      to working instructions, and un-mark the status table entries.
+      source and CI times out); add an explicit step/`build-args` if needed. The
+      `Games` library now builds in CI too — the expected warnings are the `module`
+      hints and `Games/Easy1.lean`'s `sorry`.
+- [ ] Consider tracking widget UX parity and any tactics the Lean 3 game had but the
+      port does not (diff against `STacticOld.lean`).

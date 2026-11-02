@@ -6,10 +6,11 @@ A Lean 4 port of Markus Himmel's [Lean 3 sudoku](https://github.com/TwoFX/sudoku
 You don't solve the grid on paper — in a file you *prove* that each cell contains
 the right number, using tactics that encode ordinary sudoku solving strategies.
 
-> **Status (work in progress):** the core library (`LeanSudoku/Basic.lean`) builds
-> cleanly on a current toolchain (Lean v4.35.0 + Mathlib v4.35.0). The interactive
-> gameplay tactics and the board widget are still being ported from Lean 3 —
-> see [TODO.md](TODO.md) for exactly where the port stands.
+> **Status (work in progress):** the core library, the interactive gameplay tactics
+> (`row_logic`, `col_logic`, `box_logic`, `cell_logic`/`naked_single`, pencil marks,
+> `sudoku_assumption`, `sudoku_finish`) and the game generator all build on the
+> current toolchain (Lean v4.35.0 + Mathlib v4.35.0). Still to port: the board
+> widget. See [TODO.md](TODO.md) for exactly where the port stands.
 
 ## Getting started
 
@@ -33,12 +34,13 @@ Nothing else: you do not install Lean or Mathlib separately.
 git clone https://github.com/muck-stump/LeanSudoku.git
 cd LeanSudoku
 lake exe cache get   # download prebuilt Mathlib (~minutes, once per checkout)
-lake build           # build the LeanSudoku library
+lake build           # build the LeanSudoku library and the Games check-in
 ```
 
 `lake` resolves the toolchain from `lean-toolchain` (via `elan`) and all
 dependencies from `lake-manifest.json`. Mathlib is fetched prebuilt, so nothing
-compiles Mathlib from source.
+compiles Mathlib from source. An unplayed game file builds with a `sorry`
+warning, which is expected.
 
 ### How the build is pinned (reproducibility)
 
@@ -70,33 +72,53 @@ toolchain automatically; no project-specific editor configuration is required.
 
 ## Repository layout
 
-| Path                        | What it is                                                  | Status      |
-| --------------------------- | ----------------------------------------------------------- | ----------- |
-| `LeanSudoku/Basic.lean`     | sudoku definition and lemmas (rows, cols, boxes, pencil marks) | ✅ builds   |
-| `LeanSudoku/STactic.lean`   | gameplay tactics (`sudoku_conflict`, …)                      | 🚧 partial port, not yet in the build |
-| `LeanSudoku/STacticOld.lean` | original Lean 3 tactics, kept as the porting reference        | ❌ unported |
-| `LeanSudoku/Widget.lean`    | board-display widget                                         | ❌ unported (Lean 3) |
-| `scripts/gen.cpp`           | turns a grid into a game file                                | 🚧 still emits Lean 3 syntax |
+| Path                         | What it is                                                     | Status      |
+| ---------------------------- | -------------------------------------------------------------- | ----------- |
+| `LeanSudoku/Basic.lean`      | sudoku definition and lemmas (rows, cols, boxes, pencil marks) | ✅ builds   |
+| `LeanSudoku/STactic.lean`    | board reading and `sudoku_conflict`                            | ✅ builds   |
+| `LeanSudoku/Tactics.lean`    | gameplay tactics (`row_logic`, …, `sudoku_finish`)             | ✅ builds   |
+| `LeanSudoku/STacticOld.lean` | original Lean 3 tactics, kept as the porting reference         | ⏸ reference only |
+| `LeanSudoku/Widget.lean`     | board-display widget                                           | ❌ unported (Lean 3) |
+| `scripts/gen.sh`, `gen.cpp`  | turn a grid into a game file                                   | ✅ emits Lean 4 |
+| `Games/`                     | game files; `Games/Easy1.lean` is a checked-in example         | 🎮 play here |
 
 ## How to play
 
-*This describes the game as it worked in the Lean 3 version; it is the behaviour
-the tactics above are being ported to restore (see [TODO.md](TODO.md)).*
+### Generate a game file
+
+A game is a Lean file holding a theorem whose hypotheses are the given cells and whose
+conclusion is every cell of the solved grid. Turn a grid (nine lines of nine integers,
+`0` = empty) into one:
+
+```sh
+scripts/gen.sh < scripts/easy1 > Games/MyGame.lean
+```
+
+The file builds right away — the proof body starts as `sorry` (a warning, not an
+error) — so you can open it in your editor and start playing. `Games/Easy1.lean` is
+such a game, generated from `scripts/easy1`.
+
+### Make a move
 
 Cells are zero-indexed from the top left. You place the number `z` in cell `(x, y)` by saying
 
 ```lean
-have cxy : s.f (x, y) = z
+have cxy : s.f (x, y) = z := by <a tactic>
 ```
 
-but now you have to prove why this is the case. There are four main tactics for that:
+so each `have` records a move *and* the reason it is correct. There are five tactics
+for a single cell:
 
-* `box_logic` splits along the statement "there is a z somewhere in the box of (x, y)" and
-  tries to find a conflict on the board for every position other than (x, y)
-* `row_logic` and `col_logic` are the same as `box_logic`, but (you guessed it) for rows and
-  columns rather than boxes
+* `row_logic` splits along the statement "there is a `z` somewhere in row `x`" and
+  tries to find a conflict on the board for every position other than `(x, y)`
+* `col_logic` and `box_logic` do the same for the column and the box of `(x, y)`
 * `cell_logic` is like the others, but splits along the statement "there is a number in (x, y)"
 * `naked_single` is a synonym for `cell_logic` to conform to usual sudoku terminology
+
+When a *given* cell is all you need, `sudoku_assumption` closes the goal from the
+context, and once every cell has been proven, `sudoku_finish` discharges the remaining
+conjunction of the generated theorem. (`sudoku_conflict` runs the board-conflict
+search on its own: it closes any goal for which the context alone is contradictory.)
 
 There is also support for two kinds of pencil marks: Snyder notation on the edges of cells
 and doubles and triples in the center of cells.
