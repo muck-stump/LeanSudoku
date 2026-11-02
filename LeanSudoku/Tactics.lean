@@ -27,6 +27,7 @@ or because the surviving branch is exactly the goal and closes directly.
 /-- Which of the four onto-lemmas from `Basic.lean` a logic tactic case-splits. -/
 inductive Logic where
   | /-- `row_cases`: the goal's value occurs somewhere in the goal's row -/ row
+  | /-- `col_cases`: the goal's value occurs somewhere in the goal's column -/ col
 
 /-- The kinds of statement the gameplay tactics accept as goals. -/
 inductive GoalKind where
@@ -98,7 +99,7 @@ def wrapSlot (g : SudokuGoal) (i : Nat) (p : Expr) : Expr :=
 /-- Which goals each logic tactic accepts. -/
 def Logic.allowed (l : Logic) (k : GoalKind) : Bool :=
   match l, k with
-  | .row, .cell => true
+  | .row, .cell | .col, .cell => true
   | _, _ => false
 
 /-- Searches for a proof of `target` among the given cell hypotheses. -/
@@ -169,6 +170,7 @@ def caseProof (l : Logic) (g : SudokuGoal) : MetaM Expr := do
   let (r, c, v) := g.root
   match l with
   | .row => pure q(Sudoku.row_cases $s $r $v)
+  | .col => pure q(Sudoku.col_cases $s $c $v)
 
 /-- Shared engine: optionally case-split `disj?` (an onto-lemma proof) in the main
 goal, then repeatedly try to close every branch against the board, splitting the
@@ -223,6 +225,10 @@ def runLogic (l : Logic) (pencils : Array Name) : TacticM Unit := do
 (`row_cases`) and closes every position but the goal's own cell by contradiction. -/
 elab "row_logic" : tactic => runLogic .row #[]
 
+/-- Splits the fact that the goal's value occurs somewhere in the goal's column
+(`col_cases`) and closes every position but the goal's own cell by contradiction. -/
+elab "col_logic" : tactic => runLogic .col #[]
+
 /-- Closes the goal if a cell hypothesis in the context already proves it (pencil-mark
 goals are matched against their disjuncts). -/
 elab "sudoku_assumption" : tactic => do
@@ -249,6 +255,12 @@ example (s : Sudoku) (h0 : s.f (0, 0) = 1) (h1 : s.f (0, 1) = 3) (h2 : s.f (0, 2
     (h4 : s.f (0, 4) = 5) (h5 : s.f (0, 5) = 6) (h6 : s.f (0, 6) = 7)
     (h7 : s.f (0, 7) = 8) (h8 : s.f (0, 8) = 0) : s.f (0, 3) = 4 := by
   row_logic
+
+-- `col_logic`: same idea down column 0.
+example (s : Sudoku) (h1 : s.f (1, 0) = 1) (h2 : s.f (2, 0) = 2) (h4 : s.f (4, 0) = 3)
+    (h5 : s.f (5, 0) = 4) (h6 : s.f (6, 0) = 5) (h7 : s.f (7, 0) = 6)
+    (h8 : s.f (8, 0) = 7) (h0 : s.f (0, 0) = 8) : s.f (3, 0) = 0 := by
+  col_logic
 
 -- `sudoku_assumption` finishes a goal already present in the context.
 example (s : Sudoku) (h0 : s.f (0, 0) = 1) : s.f (0, 0) = 1 := by
