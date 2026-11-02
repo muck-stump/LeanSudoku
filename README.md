@@ -125,12 +125,17 @@ The file builds right away — the proof body starts as `sorry` (a warning, not 
 error) — so you can open it in your editor and start playing. `Games/Easy1.lean` is
 such a game, generated from `scripts/easy1`.
 
-The generated statement opens with `set_option pp.deepTerms.threshold 10 in`:
-the 81-cell answer-key conjunction is deep enough to otherwise print as ~50
-infoview lines and push the board widget (rendered below the goal) out of view,
-so its tail elides to `⋯`. This is display-only — every hypothesis (givens,
-your moves, pencil marks) still prints in full, and the widget already shows
-which cells are left.
+How deep that goal prints is one build flag, not a property of each generated
+file: `lakefile.toml` sets `pp.deepTerms.threshold = 6` under `[leanOptions]`,
+so the 81-cell answer-key conjunction elides to `⋯` after a couple of cells
+instead of filling ~50 infoview lines and pushing the board widget (rendered
+below the goal — see [See the board](#see-the-board)) out of view. Raise the
+number to read more of the answer key in the goal, lower it for shorter
+goals — it is display-only. Every hypothesis (givens, your moves, pencil
+marks) prints in full at any setting, and the board widget already shows
+which cells are left. If you generate a game into some *other* project,
+copy that line into its lakefile: without it, Lean's default threshold of
+50 applies.
 
 Lake only elaborates the games registered in `Games.lean`; after creating a new
 file, either add `import Games.MyGame` there so `lake build` checks it, or check it
