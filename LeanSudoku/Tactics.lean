@@ -237,18 +237,36 @@ elab "row_logic" : tactic => runLogic .row #[]
 (`col_cases`) and closes every position but the goal's own cell by contradiction. -/
 elab "col_logic" : tactic => runLogic .col #[]
 
-/-- Closes goals of the form `s.f (r, c) = v` and `s.snyder …` by case-splitting
-`box_cases` (`v` occurs somewhere in the goal's box) and ruling out every other
-position. -/
-elab "box_logic" : tactic => runLogic .box #[]
+/-- The syntax of the pencil-mark-assisted tactics: `with p₀ p₁ …` names hypotheses
+for pencil marks to case-split when a branch does not close immediately. -/
+syntax (name := sudokuBoxLogic) "box_logic" (ppSpace "with" ppSpace ident+)? : tactic
+syntax (name := sudokuCellLogic) "cell_logic" (ppSpace "with" ppSpace ident+)? : tactic
+syntax (name := sudokuNakedSingle) "naked_single" (ppSpace "with" ppSpace ident+)? : tactic
+syntax (name := sudokuPencil) "pencil" (ppSpace "with" ppSpace ident+)? : tactic
+
+/-- Closes goals of the form `s.f (r, c) = v`, `s.snyder …`, `s.double …` or
+`s.triple …` by case-splitting `box_cases` (`v` occurs somewhere in the goal's box)
+and ruling out every other position. The optional `with p₀ p₁ …` names pencil-mark
+hypotheses to fall back on when a position is not immediately contradictory. -/
+elab_rules : tactic
+  | `(tactic| box_logic) => runLogic .box #[]
+  | `(tactic| box_logic with $ids:ident*) => runLogic .box (ids.map (·.getId))
 
 /-- Like `box_logic`, but case-splits `cell_cases`: the goal's cell contains one of
 the nine values and all but the goal's value are ruled out. This is the usual
 `naked_single` deduction. -/
-elab "cell_logic" : tactic => runLogic .cell #[]
+elab_rules : tactic
+  | `(tactic| cell_logic) => runLogic .cell #[]
+  | `(tactic| cell_logic with $ids:ident*) => runLogic .cell (ids.map (·.getId))
+  | `(tactic| naked_single) => runLogic .cell #[]
+  | `(tactic| naked_single with $ids:ident*) => runLogic .cell (ids.map (·.getId))
 
-/-- Synonym for `cell_logic`, following usual sudoku terminology. -/
-elab "naked_single" : tactic => runLogic .cell #[]
+/-- Case-splits the pencil marks `p₀ p₁ …` until the goal yields: no onto-lemma is
+used, only board contradictions and the pencil marks themselves. -/
+elab_rules : tactic
+  | `(tactic| pencil with $ids:ident*) => do
+      let main ← getMainGoal
+      replaceMainGoal (← liftMetaM (resolveMain main none (ids.map (·.getId))))
 
 /-- Closes the goal if a cell hypothesis in the context already proves it (pencil-mark
 goals are matched against their disjuncts). -/
@@ -296,11 +314,25 @@ example (s : Sudoku) (h00 : s.f (0, 0) = 7) (h01 : s.f (0, 1) = 1) (h02 : s.f (0
     (h20 : s.f (2, 0) = 2) (h21 : s.f (2, 1) = 8) : s.snyder 0 0 0 1 7 := by
   box_logic
 
+-- `box_logic … with` splits a pencil mark when a position is not contradictory on
+-- its own: `7` cannot sit in `(0, 1)`, because that cell only allows `1` or `2`.
+example (s : Sudoku) (hp : s.double 0 1 1 2) (h02 : s.f (0, 2) = 3) (h10 : s.f (1, 0) = 4)
+    (h11 : s.f (1, 1) = 5) (h12 : s.f (1, 2) = 6) (h20 : s.f (2, 0) = 1) (h21 : s.f (2, 1) = 8)
+    (h22 : s.f (2, 2) = 2) : s.f (0, 0) = 7 := by
+  box_logic with hp
+
 -- `naked_single`: the other eight values all occur in the row.
 example (s : Sudoku) (h1 : s.f (0, 1) = 2) (h2 : s.f (0, 2) = 3) (h3 : s.f (0, 3) = 4)
     (h4 : s.f (0, 4) = 5) (h5 : s.f (0, 5) = 6) (h6 : s.f (0, 6) = 7)
     (h7 : s.f (0, 7) = 8) (h8 : s.f (0, 8) = 0) : s.f (0, 0) = 1 := by
   naked_single
+
+-- `pencil … with` alone: split a pencil mark in the context and let the board pick
+-- the surviving disjunct -- `5` is already taken in the row, so `(0, 1) = 2`.
+example (s : Sudoku) (hp : s.double 0 1 2 5) (h00 : s.f (0, 0) = 1) (h02 : s.f (0, 2) = 3)
+    (h03 : s.f (0, 3) = 4) (h04 : s.f (0, 4) = 5) (h05 : s.f (0, 5) = 6) (h06 : s.f (0, 6) = 7)
+    (h07 : s.f (0, 7) = 8) (h08 : s.f (0, 8) = 0) : s.f (0, 1) = 2 := by
+  pencil with hp
 
 -- `sudoku_assumption` finishes a goal already present in the context.
 example (s : Sudoku) (h0 : s.f (0, 0) = 1) : s.f (0, 0) = 1 := by
