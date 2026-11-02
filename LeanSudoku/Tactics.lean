@@ -28,6 +28,7 @@ or because the surviving branch is exactly the goal and closes directly.
 inductive Logic where
   | /-- `row_cases`: the goal's value occurs somewhere in the goal's row -/ row
   | /-- `col_cases`: the goal's value occurs somewhere in the goal's column -/ col
+  | /-- `box_cases`: the goal's value occurs somewhere in the goal's box -/ box
 
 /-- The kinds of statement the gameplay tactics accept as goals. -/
 inductive GoalKind where
@@ -99,7 +100,7 @@ def wrapSlot (g : SudokuGoal) (i : Nat) (p : Expr) : Expr :=
 /-- Which goals each logic tactic accepts. -/
 def Logic.allowed (l : Logic) (k : GoalKind) : Bool :=
   match l, k with
-  | .row, .cell | .col, .cell => true
+  | .row, .cell | .col, .cell | .box, .cell | .box, .snyder => true
   | _, _ => false
 
 /-- Searches for a proof of `target` among the given cell hypotheses. -/
@@ -171,6 +172,10 @@ def caseProof (l : Logic) (g : SudokuGoal) : MetaM Expr := do
   match l with
   | .row => pure q(Sudoku.row_cases $s $r $v)
   | .col => pure q(Sudoku.col_cases $s $c $v)
+  | .box =>
+      let br : Q(Fin 3) := q((↑(Fin.val $r / 3) : Fin 3))
+      let bc : Q(Fin 3) := q((↑(Fin.val $c / 3) : Fin 3))
+      pure q(Sudoku.box_cases $s $br $bc $v)
 
 /-- Shared engine: optionally case-split `disj?` (an onto-lemma proof) in the main
 goal, then repeatedly try to close every branch against the board, splitting the
@@ -229,6 +234,11 @@ elab "row_logic" : tactic => runLogic .row #[]
 (`col_cases`) and closes every position but the goal's own cell by contradiction. -/
 elab "col_logic" : tactic => runLogic .col #[]
 
+/-- Closes goals of the form `s.f (r, c) = v` and `s.snyder …` by case-splitting
+`box_cases` (`v` occurs somewhere in the goal's box) and ruling out every other
+position. -/
+elab "box_logic" : tactic => runLogic .box #[]
+
 /-- Closes the goal if a cell hypothesis in the context already proves it (pencil-mark
 goals are matched against their disjuncts). -/
 elab "sudoku_assumption" : tactic => do
@@ -261,6 +271,19 @@ example (s : Sudoku) (h1 : s.f (1, 0) = 1) (h2 : s.f (2, 0) = 2) (h4 : s.f (4, 0
     (h5 : s.f (5, 0) = 4) (h6 : s.f (6, 0) = 5) (h7 : s.f (7, 0) = 6)
     (h8 : s.f (8, 0) = 7) (h0 : s.f (0, 0) = 8) : s.f (3, 0) = 0 := by
   col_logic
+
+-- `box_logic`: everything else in the top-left box is filled in.
+example (s : Sudoku) (h00 : s.f (0, 0) = 1) (h01 : s.f (0, 1) = 2) (h02 : s.f (0, 2) = 3)
+    (h10 : s.f (1, 0) = 4) (h11 : s.f (1, 1) = 5) (h12 : s.f (1, 2) = 6)
+    (h20 : s.f (2, 0) = 7) (h21 : s.f (2, 1) = 8) : s.f (2, 2) = 0 := by
+  box_logic
+
+-- `box_logic` can also prove an outer pencil mark: `7` lies in one of the two cells,
+-- because it cannot be anywhere else in the box.
+example (s : Sudoku) (h00 : s.f (0, 0) = 7) (h01 : s.f (0, 1) = 1) (h02 : s.f (0, 2) = 3)
+    (h10 : s.f (1, 0) = 4) (h11 : s.f (1, 1) = 5) (h12 : s.f (1, 2) = 6)
+    (h20 : s.f (2, 0) = 2) (h21 : s.f (2, 1) = 8) : s.snyder 0 0 0 1 7 := by
+  box_logic
 
 -- `sudoku_assumption` finishes a goal already present in the context.
 example (s : Sudoku) (h0 : s.f (0, 0) = 1) : s.f (0, 0) = 1 := by

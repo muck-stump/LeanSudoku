@@ -67,11 +67,33 @@ structure BoardInfo where
 
 /-- Evaluates an expression `e` of type `Fin 9` (e.g. a coordinate or a cell value
 written as a numeral in the goal or in a hypothesis) to its value in `0 … 8`.
-Fails if the expression is not a ground numeral of that shape. -/
+Fails if the expression is not a ground numeral of that shape.
+
+The coordinates produced by `box_cases` are computed terms such as
+`↑(3 * ↑(2 / 3) + 1)` rather than plain numerals, so several strategies are tried:
+`norm_num`-style evaluation directly, after whnf, and finally by evaluating the
+underlying `Fin.val` to a natural literal. -/
 def evalFin (e : Q(Fin 9)) : MetaM (Option (Fin 9)) := do
-  let ⟨natLit, _⟩ ← Mathlib.Meta.NormNum.deriveNat e (q(Fin.instAddMonoidWithOne 9))
-  let some n ← getNatValue? natLit | return none
-  if h : n < 9 then return some ⟨n, h⟩ else return none
+  let viaNormNum (e : Q(Fin 9)) : MetaM (Option (Fin 9)) := do
+    let ⟨natLit, _⟩ ← Mathlib.Meta.NormNum.deriveNat e (q(Fin.instAddMonoidWithOne 9))
+    let some n ← getNatValue? natLit | return none
+    -- `deriveNat` may report `9` for the element `(9 : Fin 9) = 0`; reduce modulo 9
+    if h : n % 9 < 9 then return some ⟨n % 9, h⟩ else return none
+  let guarded (x : Q(Fin 9)) : MetaM (Option (Fin 9)) :=
+    try viaNormNum x catch _ => return none
+  let whnfOpt : MetaM (Option Q(Fin 9)) :=
+    try return some (← whnf e) catch _ => return none
+  -- 1. plain numerals
+  if let some v ← guarded e then return some v
+  -- 2. numerals after reducing the computed coordinate arithmetic
+  if let some e' ← whnfOpt then
+    if let some v ← guarded e' then return some v
+    -- 3. the `Fin.val` of a constructor form, evaluated to a natural literal
+    let n ← try whnf (← mkAppM ``Fin.val #[e']) catch _ => return none
+    let some k ← getNatValue? n | return none
+    if h : k % 9 < 9 then return some ⟨k % 9, h⟩ else return none
+  else
+    return none
 
 def parseCellData (s : Q(Sudoku)) (e : Expr) : MetaM (Option CellData) := do
   let ⟨0, ~q(Sudoku.f $s' ($er, $ec) = $ev), e⟩ ← Qq.inferTypeQ e | return none
