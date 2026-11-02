@@ -17,6 +17,20 @@ this is editor-agnostic across the Lean 4 infoviews.
 
 As in the Lean 3 widget, digits are stored `mod 9` (the digit 9 elaborates to
 `(9 : Fin 9) = 0`), so `0` is printed as `9`.
+
+Two rendering targets have to work from the same markup:
+
+* a browser (e.g. the VS Code infoview): CSS provides the borders — thin ones
+  everywhere, thick ones on the 3×3 box lines — the fixed cell size, and the
+  big digits;
+* lean.nvim's terminal renderer (`tui.html`): it turns the `<table>` into one
+  text line per `<tr>` with the cells joined by ` │ `. It ignores `border`,
+  `width`, `height` and `font-size`, but honours `color`, `background-color`
+  and `font-weight`. Content must therefore be a `<span>` (inline) and never a
+  `<div>` (`Tag.div` is block-level: one newline per cell — a 81-line stack).
+  Alternating 3×3 boxes get a light background tint so the box structure stays
+  visible in the terminal, and empty cells carry a faint `·` so every column has
+  width ≥ 1 (zero-width cells would make both the tint and the padding vanish).
 -/
 
 namespace Tactic.Sudoku
@@ -47,43 +61,45 @@ def innerDigits (n m : Nat) (bi : BoardInfo) : List Nat :=
   | some ip => ip.vals.map (·.val)
   | none => []
 
-private def digitsHtml (digits : List Nat) (style : String) : Html :=
-  Html.element "div" #[(("style", Json.str style))]
-    (digits.toArray.map fun v ↦
-      Html.element "span" #[("style", Json.str "margin:0 1px;")] #[Html.text (digitStr v)])
+/-- One cell's contents: the shown digit, the pencil marks, 💥 for a contradictory
+cell, or a faint `·` for an unknown one, as `(text, cssStyle)`. -/
+private def cellView (r c : Nat) (bi : BoardInfo) : String × String :=
+  match cellDigits r c bi with
+  -- exactly one known value: the big digit, as in the Lean 3 widget
+  | [v] => (digitStr v, "font-weight:bold;font-size:26px;")
+  -- more than one value in one cell: the context is contradictory
+  | _ :: _ => ("💥", "font-size:26px;")
+  -- no cell proven yet: pencil marks, inner (double/triple) ones taking
+  -- precedence over outer (Snyder) ones
+  | [] =>
+    match innerDigits r c bi with
+    | ds@(_ :: _) => (String.intercalate " " (ds.map digitStr), "color:#57606a;font-size:15px;")
+    | [] =>
+      match outerDigits r c bi with
+      | ds@(_ :: _) => (String.intercalate " " (ds.map digitStr), "color:#777e85;")
+      | [] => ("·", "color:#c9ccd1;font-size:26px;")
 
-/-- One `td`: thin borders everywhere, thick ones on 3×3 box boundaries. -/
+/-- One `td`: browser CSS frame (see the module docstring for how the terminal
+renderer treats it) plus one inline `<span>` with the cell's text. -/
 private def cellHtml (r c : Nat) (bi : BoardInfo) : Html :=
   let frame :=
     "box-sizing:border-box;border:1px solid #c9ccd1;" ++
     (if r % 3 = 0 then "border-top:3px solid #24292f;" else "") ++
     (if r % 3 = 2 then "border-bottom:3px solid #24292f;" else "") ++
     (if c % 3 = 0 then "border-left:3px solid #24292f;" else "") ++
-    (if c % 3 = 2 then "border-right:3px solid #24292f;" else "")
-  let box := "width:42px;height:42px;text-align:center;vertical-align:middle;padding:0;"
-  let content : Html :=
-    match cellDigits r c bi with
-    -- no cell proven yet: show pencil marks (inner ones take precedence), else nothing
-    | [] =>
-      match innerDigits r c bi with
-      | [] => digitsHtml (outerDigits r c bi)
-                "display:flex;flex-wrap:wrap;justify-content:center;align-self:flex-end;font-size:11px;color:#57606a;"
-      | vs => digitsHtml vs
-                "display:flex;justify-content:center;font-size:15px;letter-spacing:1px;color:#42484f;"
-    -- exactly the one known value, as in the Lean 3 widget
-    | [v] => digitsHtml [v] "font-size:26px;font-weight:600;"
-    -- more than one value in one cell: the context is contradictory
-    | _ => Html.element "div" #[] #[Html.text "💥"]
-  Html.element "td" #[("style", Json.str (frame ++ box))] #[content]
+    (if c % 3 = 2 then "border-right:3px solid #24292f;" else "") ++
+    (if (r / 3 + c / 3) % 2 = 0 then "background-color:#eef1f4;" else "") ++
+    "width:42px;height:42px;padding:0 8px;text-align:center;vertical-align:middle;"
+  let (text, style) := cellView r c bi
+  Html.element "td" #[(("style", Json.str frame))]
+    #[Html.element "span" #[(("style", Json.str style))] #[Html.text text]]
 
-/-- The 9×9 board as an HTML table. -/
+/-- The 9×9 board as an HTML table. The `tr`/`td` shape matters: lean.nvim's
+terminal renderer draws one line per row and joins the cells with ` │ `. -/
 def boardTable (bi : BoardInfo) : Html :=
   let rows : Array Html := (List.range 9).toArray.map fun r ↦
     Html.element "tr" #[] ((List.range 9).toArray.map fun c ↦ cellHtml r c bi)
-  Html.element "table" #[
-      ("style",
-        Json.str "border-collapse:collapse;font-family:ui-monospace,'Cascadia Mono',monospace;")
-    ] rows
+  Html.element "table" #[(("style", Json.str "border-collapse:collapse;"))] rows
 
 /-- Reads the board out of the given goal's context and renders it. -/
 def currentBoardHtml (g : MVarId) : MetaM Html :=
