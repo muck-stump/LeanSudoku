@@ -24,6 +24,10 @@ board (an `sudoku_conflict`-style argument, possibly using further pencil marks)
 or because the surviving branch is exactly the goal and closes directly.
 -/
 
+/-- Which of the four onto-lemmas from `Basic.lean` a logic tactic case-splits. -/
+inductive Logic where
+  | /-- `row_cases`: the goal's value occurs somewhere in the goal's row -/ row
+
 /-- The kinds of statement the gameplay tactics accept as goals. -/
 inductive GoalKind where
   | /-- `s.f (r, c) = v` -/ cell
@@ -91,6 +95,12 @@ def wrapSlot (g : SudokuGoal) (i : Nat) (p : Expr) : Expr :=
         (mkApp2 (mkConst ``Or) (slotType g 1) (slotType g 2))
         (mkApp3 (mkConst ``Or.inr) (slotType g 1) (slotType g 2) p)
 
+/-- Which goals each logic tactic accepts. -/
+def Logic.allowed (l : Logic) (k : GoalKind) : Bool :=
+  match l, k with
+  | .row, .cell => true
+  | _, _ => false
+
 /-- Searches for a proof of `target` among the given cell hypotheses. -/
 def proveFromCells (g : SudokuGoal) (target : Expr) (cands : List CellData) :
     MetaM (Option Expr) := do
@@ -102,6 +112,116 @@ def proveFromCells (g : SudokuGoal) (target : Expr) (cands : List CellData) :
         if ← isDefEq (← inferType pr) target then
           return some pr
   return none
+
+/-- Tries to close goal `g` using the cells known from the context `cd` plus the
+extra facts `stems`: first by contradiction on the board, then by matching one of
+the stems against the goal. -/
+def resolveGoal (s : Q(Sudoku)) (cd : List CellData) (stems : List Expr) (g : MVarId) :
+    MetaM Bool := g.withContext do
+  if let some fp ← (some <$> conflictWith s cd stems) <|> pure none then
+    let falseGoal ← g.exfalso
+    falseGoal.assign fp
+    return true
+  let target ← g.getType
+  let some goal ← parseSudokuGoal target | return false
+  let scds ← stems.filterMapM (parseCellData s)
+  match ← proveFromCells goal target scds with
+  | some pr => g.assign pr; return true
+  | none => return false
+
+/-- Runs `resolveGoal` on every open branch `(goal, extra facts)`, returning those
+that could not be closed. -/
+def resolveAll (s : Q(Sudoku)) (cd : List CellData) (branches : Array (MVarId × Array Expr)) :
+    MetaM (Array (MVarId × Array Expr)) := do
+  let mut open_ := #[]
+  for (g, stems) in branches do
+    unless ← resolveGoal s cd stems.toList g do
+      open_ := open_.push (g, stems)
+  return open_
+
+/-- Finds the local hypothesis named `n` in the context of goal `g`. -/
+def findHyp (g : MVarId) (n : Name) : MetaM (Option FVarId) :=
+  g.withContext do
+    return ((← getLCtx).findFromUserName? n).map (·.fvarId)
+
+/-- Case-splits the hypothesis `f` (whose type unfolds to a nested `Or`) inside `g`,
+returning every leaf branch together with the proof hypothesis the leaf introduces. -/
+partial def splitOr (g : MVarId) (f : FVarId) : MetaM (Array (MVarId × Expr)) := do
+  -- run the whole walk under the context of the goal being split: the hypothesis
+  -- (and later the case payloads) are only declared there
+  g.withContext do
+    let ty ← whnf (← f.getType)
+    if ty.isAppOfArity ``Or 2 then
+      let mut out := #[]
+      for sub in ← g.cases f do
+        let payload := sub.subst.apply sub.fields[0]!
+        if payload.isFVar then
+          out := out ++ (← splitOr sub.mvarId payload.fvarId!)
+        else
+          out := out.push (sub.mvarId, payload)
+      return out
+    else
+      return #[(g, Expr.fvar f)]
+
+/-- The disjunction that the given logic tactic case-splits. -/
+def caseProof (l : Logic) (g : SudokuGoal) : MetaM Expr := do
+  let s := g.s
+  let (r, c, v) := g.root
+  match l with
+  | .row => pure q(Sudoku.row_cases $s $r $v)
+
+/-- Shared engine: optionally case-split `disj?` (an onto-lemma proof) in the main
+goal, then repeatedly try to close every branch against the board, splitting the
+pencil marks in `pencils` (last to first, as in the Lean 3 version) whenever the
+cheaper arguments leave a branch open. Returns the goals that remain open. -/
+def resolveMain (main : MVarId) (disj? : Option Expr) (pencils : Array Name) :
+    MetaM (List MVarId) :=
+  main.withContext do
+    let s ← getSudoku
+    let cd ← getCellData s
+    let mut open_ : Array (MVarId × Array Expr) ←
+      match disj? with
+      | none => pure #[(main, #[])]
+      | some pr => do
+        let (disjF, goal₁) ← main.note `h pr
+        let branches ← splitOr goal₁ disjF
+        pure (branches.map fun (b, leaf) => (b, #[leaf]))
+    open_ ← resolveAll s cd open_
+    for p in pencils.reverse do
+      if open_.isEmpty then break
+      let mut next := #[]
+      let mut found := false
+      for (b, stems) in open_ do
+        if let some pf ← findHyp b p then
+          found := true
+          for (b₂, leaf) in ← splitOr b pf do
+            next := next.push (b₂, stems.push leaf)
+        else
+          next := next.push (b, stems)
+      unless found do throwError "unknown hypothesis `{p}`"
+      open_ ← resolveAll s cd next
+    return (open_.map (·.1)).toList
+
+/-- The shared implementation of the logic tactics: recognise the goal, build the
+corresponding onto-lemma proof, and hand over to `resolveMain`. -/
+def logicMain (main : MVarId) (l : Logic) (pencils : Array Name) : MetaM (List MVarId) :=
+  main.withContext do
+    let target ← main.getType
+    let some g ← parseSudokuGoal target
+      | throwError "I don't recognize the goal:{indentExpr target}"
+    unless Logic.allowed l g.kind do
+      throwError "this tactic does not apply to a goal of this shape:{indentExpr target}"
+    resolveMain main (some (← caseProof l g)) pencils
+
+/-- Shared entry point for the logic tactics: run `logicMain` on the main goal and
+make its surviving branches the new goals. -/
+def runLogic (l : Logic) (pencils : Array Name) : TacticM Unit := do
+  let main ← getMainGoal
+  replaceMainGoal (← liftMetaM (logicMain main l pencils))
+
+/-- Splits the fact that the goal's value occurs somewhere in the goal's row
+(`row_cases`) and closes every position but the goal's own cell by contradiction. -/
+elab "row_logic" : tactic => runLogic .row #[]
 
 /-- Closes the goal if a cell hypothesis in the context already proves it (pencil-mark
 goals are matched against their disjuncts). -/
@@ -123,6 +243,12 @@ elab "sudoku_finish" : tactic => do
   evalTactic (← `(tactic| repeat (first | sudoku_assumption | constructor)))
 
 /-! ### Smoke tests for the gameplay tactics -/
+
+-- `row_logic`: everything else in row 0 is filled in, so the goal cell is forced.
+example (s : Sudoku) (h0 : s.f (0, 0) = 1) (h1 : s.f (0, 1) = 3) (h2 : s.f (0, 2) = 2)
+    (h4 : s.f (0, 4) = 5) (h5 : s.f (0, 5) = 6) (h6 : s.f (0, 6) = 7)
+    (h7 : s.f (0, 7) = 8) (h8 : s.f (0, 8) = 0) : s.f (0, 3) = 4 := by
+  row_logic
 
 -- `sudoku_assumption` finishes a goal already present in the context.
 example (s : Sudoku) (h0 : s.f (0, 0) = 1) : s.f (0, 0) = 1 := by

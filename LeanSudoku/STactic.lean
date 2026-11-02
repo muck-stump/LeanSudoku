@@ -210,12 +210,19 @@ def cellConflict (s : Q(Sudoku)) (cd : List CellData) : MetaM Q(False) :=
 def boxConflict (s : Q(Sudoku)) (cd : List CellData) : MetaM Q(False) :=
   cd.firstPairM (mkBoxConflict s)
 
+/-- Searches for a contradiction between the known cells `cd` and the additional
+facts `extra` (typically hypotheses introduced by a case split or pencil marks). -/
+def conflictWith (s : Q(Sudoku)) (cd : List CellData) (extra : List Expr) : MetaM Q(False) := do
+  let ds ← extra.filterMapM (parseCellData s)
+  let all := ds ++ cd
+  rowConflict s all <|> colConflict s all <|> cellConflict s all <|> boxConflict s all
+
 def conflict : TacticM Unit :=
   liftMetaFinishingTactic fun goal => do
     let s ← getSudoku
     let cd ← getCellData s
     let falseGoal ← goal.exfalso
-    let proof ← rowConflict s cd <|> colConflict s cd <|> cellConflict s cd <|> boxConflict s cd
+    let proof ← conflictWith s cd []
     falseGoal.assign proof
 
 elab "sudoku_conflict" : tactic => conflict
