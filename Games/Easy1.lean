@@ -11,6 +11,9 @@ import LeanSudoku
   with `sudoku_finish`.
 -/
 
+-- Keep the 81-cell answer-key conjunction from flooding the infoview:
+-- deep terms print as `⋯`; the board widget lists what is left.
+set_option pp.deepTerms.threshold 10 in
 theorem play (s : Sudoku)
     (c01 : s.f (0, 1) = 7)
     (c04 : s.f (0, 4) = 2)

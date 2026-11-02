@@ -68,6 +68,15 @@ int main()
 	cout << "  README.md) in place of the `sorry` below, and close the whole board\n";
 	cout << "  with `sudoku_finish`.\n";
 	cout << "-/\n\n";
+	// The conclusion is an 81-deep right-nested `∧`, which pretty-prints to ~50
+	// infoview lines and pushes the board widget (rendered below the goal) past
+	// scrolling distance. Threshold 10 keeps every hypothesis — givens, moves,
+	// pencil marks — printing in full (they are shallow) while the deep tail of
+	// the answer-key conjunction elides to `⋯`; the widget already
+	// lists which cells are left. Display-only: no effect on elaboration or gameplay.
+	cout << "-- Keep the 81-cell answer-key conjunction from flooding the infoview:\n";
+	cout << "-- deep terms print as `⋯`; the board widget lists what is left.\n";
+	cout << "set_option pp.deepTerms.threshold 10 in\n";
 	cout << "theorem play (s : Sudoku)";
 
 	fora(i, 9) fora (j, 9) {

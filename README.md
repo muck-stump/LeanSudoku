@@ -125,6 +125,13 @@ The file builds right away — the proof body starts as `sorry` (a warning, not 
 error) — so you can open it in your editor and start playing. `Games/Easy1.lean` is
 such a game, generated from `scripts/easy1`.
 
+The generated statement opens with `set_option pp.deepTerms.threshold 10 in`:
+the 81-cell answer-key conjunction is deep enough to otherwise print as ~50
+infoview lines and push the board widget (rendered below the goal) out of view,
+so its tail elides to `⋯`. This is display-only — every hypothesis (givens,
+your moves, pencil marks) still prints in full, and the widget already shows
+which cells are left.
+
 Lake only elaborates the games registered in `Games.lean`; after creating a new
 file, either add `import Games.MyGame` there so `lake build` checks it, or check it
 on its own with `lake env lean Games/MyGame.lean`. Your editor elaborates it
