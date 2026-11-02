@@ -117,6 +117,11 @@ elab "sudoku_assumption" : tactic => do
     | some pr => goal.assign pr
     | none => throwError "no hypothesis in the context proves{indentExpr target}"
 
+/-- Plays out the goal: repeatedly closes conjuncts from the context (`sudoku_assumption`)
+or splits the final conjunction of all 81 cells (`constructor`). -/
+elab "sudoku_finish" : tactic => do
+  evalTactic (← `(tactic| repeat (first | sudoku_assumption | constructor)))
+
 /-! ### Smoke tests for the gameplay tactics -/
 
 -- `sudoku_assumption` finishes a goal already present in the context.
@@ -126,5 +131,10 @@ example (s : Sudoku) (h0 : s.f (0, 0) = 1) : s.f (0, 0) = 1 := by
 -- ... and wraps it into a pencil-mark goal.
 example (s : Sudoku) (h0 : s.f (0, 0) = 1) : s.snyder 0 0 0 1 1 := by
   sudoku_assumption
+
+-- `sudoku_finish` plays out the whole generated-game conclusion from the given cells.
+example (s : Sudoku) (h00 : s.f (0, 0) = 1) (h01 : s.f (0, 1) = 2) :
+    s.f (0, 0) = 1 ∧ s.f (0, 1) = 2 := by
+  sudoku_finish
 
 end Tactic.Sudoku
