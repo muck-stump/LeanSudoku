@@ -113,9 +113,9 @@ the pinned toolchain automatically.
 
 ### Generate a game file
 
-A game is a Lean file holding a theorem whose hypotheses are the given cells and whose
-conclusion is every cell of the solved grid. Turn a grid (nine lines of nine integers,
-`0` = empty) into one:
+A game is a Lean file holding a theorem that packs the clue cells into one
+`Givens s` hypothesis and whose conclusion is every cell of the solved grid.
+Turn a grid (nine lines of nine integers, `0` = empty) into one:
 
 ```sh
 scripts/gen.sh < scripts/easy1 > Games/MyGame.lean
@@ -125,15 +125,22 @@ The file builds right away — the proof body starts as `sorry` (a warning, not 
 error) — so you can open it in your editor and start playing. `Games/Easy1.lean` is
 such a game, generated from `scripts/easy1`.
 
+The clue cells travel as *one* hypothesis: the file defines
+`def Givens (s : Sudoku) : Prop := …` (one clue equation per line) and the
+theorem takes `(g : Givens s)`, so the goal reads `g : Givens s` — one line —
+instead of listing every clue above the target. The tactics and the board
+widget unfold it while reading the context; `unfold Givens at g` if you want
+to see the equations yourself.
+
 How deep that goal prints is one build flag, not a property of each generated
 file: `lakefile.toml` sets `pp.deepTerms.threshold = 6` under `[leanOptions]`,
 so the 81-cell answer-key conjunction elides to `⋯` after a couple of cells
 instead of filling ~50 infoview lines and pushing the board widget (rendered
 below the goal — see [See the board](#see-the-board)) out of view. Raise the
 number to read more of the answer key in the goal, lower it for shorter
-goals — it is display-only. Every hypothesis (givens, your moves, pencil
-marks) prints in full at any setting, and the board widget already shows
-which cells are left. If you generate a game into some *other* project,
+goals — it is display-only. Every hypothesis prints in full at any setting —
+your own moves and pencil marks exactly as you write them — and the board
+widget already shows which cells are left. If you generate a game into some *other* project,
 copy that line into its lakefile: without it, Lean's default threshold of
 50 applies.
 
@@ -191,6 +198,9 @@ infoview: put the cursor on a tactic line and the panel shows
 * outer (Snyder) pencil marks as small dim digits
 * 💥 in a cell whose context proves two different values (your pencil marks have
   gone wrong), and a faint `·` in cells not yet proven
+
+Clues show up as digits just like proven moves: the widget reads them out of
+`Givens s` through the same context reading the tactics use.
 
 Box structure adapts to the renderer: a browser (VS Code) draws thick lines around
 every 3×3 box, while lean.nvim's terminal renderer shades alternating boxes with a
