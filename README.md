@@ -2,6 +2,10 @@
 
 ![Screenshot](screenshot/screenshot.jpg)
 
+*The original Lean 3 game (a VS Code widget). The Lean 4 port plays the same way,
+and draws its board as an infoview panel — see [See the board](#see-the-board) —
+the same picture, in any Lean 4 client.*
+
 A Lean 4 port of Markus Himmel's [Lean 3 sudoku](https://github.com/TwoFX/sudoku).
 You don't solve the grid on paper — in a file you *prove* that each cell contains
 the right number, using tactics that encode ordinary sudoku solving strategies.
@@ -40,8 +44,11 @@ lake build           # build the LeanSudoku library and the Games check-in
 
 `lake` resolves the toolchain from `lean-toolchain` (via `elan`) and all
 dependencies from `lake-manifest.json`. Mathlib is fetched prebuilt, so nothing
-compiles Mathlib from source. An unplayed game file builds with a `sorry`
-warning, which is expected.
+compiles Mathlib from source.
+
+Expected warnings, none of them failures: an unplayed game file reports
+`declaration uses 'sorry'`, and each module that imports Mathlib prints an
+informational "consider adding `module`" hint.
 
 ### How the build is pinned (reproducibility)
 
@@ -118,6 +125,12 @@ The file builds right away — the proof body starts as `sorry` (a warning, not 
 error) — so you can open it in your editor and start playing. `Games/Easy1.lean` is
 such a game, generated from `scripts/easy1`.
 
+Lake only elaborates the games registered in `Games.lean`; after creating a new
+file, either add `import Games.MyGame` there so `lake build` checks it, or check it
+on its own with `lake env lean Games/MyGame.lean`. Your editor elaborates it
+either way, since the language server never builds dependencies itself
+(see *Editor setup*).
+
 ### Make a move
 
 Cells are zero-indexed from the top left. You place the number `z` in cell `(x, y)` by saying
@@ -140,6 +153,20 @@ context, and once every cell has been proven, `sudoku_finish` discharges the rem
 conjunction of the generated theorem. (`sudoku_conflict` runs the board-conflict
 search on its own: it closes any goal for which the context alone is contradictory.)
 
+A concrete opening line for the checked-in `Games/Easy1.lean` (replacing its
+`sorry`):
+
+```lean
+  have c70 : s.f (7, 0) = 9 := by row_logic
+  sorry
+```
+
+— the given cells rule out the filled slots of row 7, and the 9s already sitting in
+columns 3, 6, 7 and 8 rule out the four empty ones, so `row_logic` forces
+`(7, 0) = 9` from the givens alone. If a tactic *can't* yet finish a move it refuses
+politely and lists the branches it could not rule out — that is the game telling you
+which pencil marks you still need, not an error.
+
 ### See the board
 
 You don't have to keep the grid on paper. Every move tactic (`row_logic`, `col_logic`,
@@ -147,12 +174,16 @@ You don't have to keep the grid on paper. Every move tactic (`row_logic`, `col_l
 picture of the board **as it looked before that move** as a widget panel in the
 infoview: put the cursor on a tactic line and the panel shows
 
-* each proven cell as a big digit,
-* double/triple pencil marks in the cell centre,
-* outer (Snyder) pencil marks as small digits,
-* thick lines around every 3×3 box,
+* each proven cell as a digit (large in a browser, bold everywhere)
+* double/triple pencil marks in the cell centre, smaller and dimmed
+* outer (Snyder) pencil marks as small dim digits
 * 💥 in a cell whose context proves two different values (your pencil marks have
-  gone wrong).
+  gone wrong), and a faint `·` in cells not yet proven
+
+Box structure adapts to the renderer: a browser (VS Code) draws thick lines around
+every 3×3 box, while lean.nvim's terminal renderer shades alternating boxes with a
+colored checkerboard and separates columns with `│` — see
+`LeanSudoku/SudokuWidget.lean` for how one markup drives both.
 
 Stepping down your game file line by line therefore replays the board filling up.
 (In lean.nvim the panel is the foldable *HTML Display* entry in the infoview; pin
