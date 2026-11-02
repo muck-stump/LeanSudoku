@@ -137,17 +137,50 @@ def parseInnerPencilData (s : Q(Sudoku)) (e : Expr) : MetaM (Option InnerPencilD
   | some d => return some d
   | none => parseInnerPencilData₃ s e
 
-def getCellData (s : Q(Sudoku)) : MetaM (List CellData) := do
+/-- The individual facts recorded by one hypothesis.
+
+A hypothesis that already names a fact we know how to read — a cell equation
+or a pencil mark (`parseCellData`, `parse*PencilData`) — is returned untouched:
+its own proof term is what conflict arguments and `proveFromCells` are built
+from. Anything else whose type *reduces to a conjunction* is split into its
+conjuncts by projection (`And.left` / `And.right`). That is how the generated
+games' clue bundle — one hypothesis `g : Givens s`, one line in the goal
+display — reaches the tactics and the board widget as the individual cell
+equations they expect, without the goal ever being touched: only the proof
+term in hand is projected, so the compact display survives board reading.
+
+Recognizable facts are leaves even when their type unfolds to a `∧` — the
+parsing order is what keeps a pencil-mark proof (whose body is an `Or` anyway)
+available to its own parser. -/
+partial def factProofs (s : Q(Sudoku)) (p : Expr) : MetaM (List Expr) := do
+  if (← parseCellData s p).isSome
+      || (← parseOuterPencilData s p).isSome
+      || (← parseInnerPencilData s p).isSome then
+    return [p]
+  let t ← try whnf (← inferType p) catch _ => return [p]
+  if t.isAppOfArity ``And 2 then
+    try
+      let left ← mkAppM ``And.left #[p]
+      let right ← mkAppM ``And.right #[p]
+      return (← factProofs s left) ++ (← factProofs s right)
+    catch _ => return [p]
+  return [p]
+
+/-- Every hypothesis of the context as a list of fact proofs, unpacking
+bundled hypotheses (see `factProofs`) on the way. -/
+def unpackedFacts (s : Q(Sudoku)) : MetaM (List Expr) := do
   let lCtx ← getLCtx
-  lCtx.toList.filterMapM fun decl => parseCellData s decl.toExpr
+  let ps ← lCtx.toList.mapM (fun decl => factProofs s decl.toExpr)
+  return ps.flatten
+
+def getCellData (s : Q(Sudoku)) : MetaM (List CellData) := do
+  (← unpackedFacts s).filterMapM (parseCellData s)
 
 def getOuterPencilData (s : Q(Sudoku)) : MetaM (List OuterPencilData) := do
-  let lCtx ← getLCtx
-  lCtx.toList.filterMapM fun decl => parseOuterPencilData s decl.toExpr
+  (← unpackedFacts s).filterMapM (parseOuterPencilData s)
 
 def getInnerPencilData (s : Q(Sudoku)) : MetaM (List InnerPencilData) := do
-  let lCtx ← getLCtx
-  lCtx.toList.filterMapM fun decl => parseInnerPencilData s decl.toExpr
+  (← unpackedFacts s).filterMapM (parseInnerPencilData s)
 
 def getBoardInfo (s : Q(Sudoku)) : MetaM BoardInfo := do
   let cellData ← getCellData s
@@ -259,6 +292,14 @@ example (s : Sudoku) (h1 : s.f (1, 1) = 1) (h2 : s.f (0, 0) = 1) : False := by
   sudoku_conflict
 
 example (s : Sudoku) (h1 : s.f (1, 1) = 1) (h2 : s.f (1, 1) = 2) : False := by
+  sudoku_conflict
+
+-- Bundled clue hypotheses (a generated game's `g : Givens s`) are read exactly
+-- like individual cell hypotheses: `factProofs` projects the conjunction apart
+-- in proof terms and `getCellData` sees every clue.
+def bundled (s : Sudoku) : Prop := s.f (1, 1) = 1 ∧ s.f (1, 2) = 1
+
+example (s : Sudoku) (g : bundled s) : False := by
   sudoku_conflict
 
 end Tactic.Sudoku

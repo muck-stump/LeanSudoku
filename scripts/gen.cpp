@@ -1,3 +1,4 @@
+#include <array>
 #include <vector>
 #include <iostream>
 using namespace std;
@@ -66,17 +67,29 @@ int main()
 	cout << "    have c00 : s.f (0, 0) = 8 := by row_logic\n\n";
 	cout << "  (or `col_logic`, `box_logic`, `cell_logic`, `naked_single`, see\n";
 	cout << "  README.md) in place of the `sorry` below, and close the whole board\n";
-	cout << "  with `sudoku_finish`.\n";
+	cout << "  with `sudoku_finish`.\n\n";
+	cout << "  The clue cells live behind one hypothesis, `g : Givens s`, so the\n";
+	cout << "  goal shows one line instead of a wall of equations; the tactics and\n";
+	cout << "  the board widget unfold it (`unfold Givens at g` to see it yourself).\n";
 	cout << "-/\n\n";
 	// How deep the conclusion below pretty-prints (eliding to `⋯`) is set by
 	// `pp.deepTerms.threshold` in this repo's lakefile.toml: games carry no
 	// option of their own, so the knob lives in exactly one place.
-	cout << "theorem play (s : Sudoku)";
-
-	fora(i, 9) fora (j, 9) {
-		if (s[i][j] == 0) continue;
-		cout << "\n    (c" << i << j << " : s.f (" << i << ", " << j << ") = " << s[i][j] << ")";
+	// Emit the clue cells as one bundled hypothesis: the goal then displays a
+	// single line (`g : Givens s`) instead of one hypothesis per clue, and the
+	// tactics and the board widget project it back apart (factProofs).
+	cout << "def Givens (s : Sudoku) : Prop :=\n";
+	{
+		vector<array<int, 3>> clues;
+		fora(i, 9) fora (j, 9) if (s[i][j] != 0) clues.push_back({i, j, s[i][j]});
+		fora(k, (int) clues.size()) {
+			cout << "    s.f (" << clues[k][0] << ", " << clues[k][1] << ") = " << clues[k][2];
+			cout << (k + 1 == (int) clues.size() ? "\n" : " ∧\n");
+		}
+		// a grid without clues is unplayable anyway, but stay valid Lean
+		if (clues.empty()) cout << "    True\n";
 	}
+	cout << "\ntheorem play (s : Sudoku) (g : Givens s)";
 
 	solve(s, 0, 0);
 

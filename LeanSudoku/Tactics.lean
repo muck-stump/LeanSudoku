@@ -359,4 +359,19 @@ example (s : Sudoku) (h00 : s.f (0, 0) = 1) (h01 : s.f (0, 1) = 2) :
     s.f (0, 0) = 1 ∧ s.f (0, 1) = 2 := by
   sudoku_finish
 
+-- Bundled clue hypotheses (a generated game's `g : Givens s`): the gameplay
+-- tactics see through them exactly as through one hypothesis per clue.
+def bundledBox (s : Sudoku) : Prop :=
+  s.f (0, 0) = 7 ∧ s.f (0, 1) = 1 ∧ s.f (0, 2) = 3 ∧ s.f (1, 0) = 4 ∧
+  s.f (1, 1) = 5 ∧ s.f (1, 2) = 6 ∧ s.f (2, 0) = 2 ∧ s.f (2, 1) = 8
+
+example (s : Sudoku) (g : bundledBox s) : s.snyder 0 0 0 1 7 := by
+  box_logic
+
+def bundledCells (s : Sudoku) : Prop := s.f (0, 0) = 1 ∧ s.f (0, 1) = 2
+
+example (s : Sudoku) (g : bundledCells s) :
+    s.f (0, 0) = 1 ∧ s.f (0, 1) = 2 := by
+  sudoku_finish
+
 end Tactic.Sudoku
